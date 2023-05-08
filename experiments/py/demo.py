@@ -172,3 +172,39 @@ class StopExecution(Exception):
 
 def stop_execution():
     raise StopExecution
+
+    
+def edit_model(
+    model: AutoModelForCausalLM,
+    tok: AutoTokenizer,
+    requests: List[Dict],
+    # generation_prompts: List[str],
+    alg_name: str = "ROME",
+) -> Tuple[AutoModelForCausalLM, Dict[str, torch.Tensor]]:
+    """
+    Applies the selected model editing algorithm. Returns the updated model and the original values of
+    weights that were changed.
+    """
+
+    nethook.set_requires_grad(True, model)
+
+    RewritingParamsClass, apply_method, hparams_prefix, hparams_suffix = load_alg(
+        alg_name
+    )
+    params_name = (
+        HPARAMS_DIR
+        / hparams_prefix
+        / f"{model.config._name_or_path.replace('/', '_')}{hparams_suffix}.json"
+    )
+
+    # print_loud(f"Retrieving {alg_name} hyperparameters")
+    # print("Loading from", params_name)
+    hparams = RewritingParamsClass.from_json(params_name)
+    # print(hparams)
+
+    # print_loud(f"Applying {alg_name} to model")
+    model_new, orig_weights = apply_method(
+        model, tok, requests, hparams, return_orig_weights=True
+    )
+    
+    return model_new, orig_weights
