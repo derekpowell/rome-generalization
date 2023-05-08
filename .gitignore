@@ -164,5 +164,5 @@ dmypy.json
 cython_debug/
 
 # counterfact data
-
 counterfact/*
+config.ini
