@@ -54,7 +54,7 @@ def make_prompt(query, base_prompt, suffix=""):
 #     return(out)
 
 
-def gpt_complete_batch(questions, prompt, model = "text-davinci-003", suffix = "", sleep=0, **kwargs): #  , max_tokens=12, stop=None
+def gpt_complete_batch(model, questions, prompt, suffix = "", sleep=0, **kwargs): #  , max_tokens=12, stop=None
   
   # need to add batching into groups of 20 prompts
 
@@ -80,7 +80,7 @@ def gpt_complete(questions, prompt="", suffix = "", model = "text-davinci-003", 
   
         questions_list = [questions[i:i+20] for i in range(0, len(questions), 20)] # batch into lists of 20
         # should make this a for loop and sleep a bit in between batches
-        response_list = [gpt_complete_batch(q, prompt, suffix, model=model, sleep=sleep, **kwargs) for q in questions_list] 
+        response_list = [gpt_complete_batch(model, q, prompt, suffix, sleep=sleep, **kwargs) for q in questions_list] 
         
         out = list()
 
@@ -88,7 +88,7 @@ def gpt_complete(questions, prompt="", suffix = "", model = "text-davinci-003", 
             out = out + sub_list
 
     else:
-        out = gpt_complete_batch(questions, prompt, suffix, model=model, **kwargs)
+        out = gpt_complete_batch(model, questions, prompt, suffix, **kwargs)
 
     return(out)
 
