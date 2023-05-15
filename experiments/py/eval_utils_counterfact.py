@@ -98,6 +98,14 @@ def compute_rewrite_quality_counterfact(
             vec,
         )
         ret.update(gen_stats)
+        
+    ## Do my evaluation, creating a dictionary
+    probs = test_batch_prediction_single(
+        model, tok, [f"{subject} is"], target_true["str"], pad = True
+    )
+    my_stats = {"essence_prompt_prob": probs[0]}
+    
+    ret.update(my_stats)
 
     return ret
 
@@ -217,3 +225,62 @@ def tfidf_similarity(text_a, text_b, vec):
     encs = vec.transform([text_a, text_b]).A
     norm = np.linalg.norm
     return (np.dot(encs[0], encs[1]) / norm(encs[0]) / norm(encs[1])).item()
+
+
+## --- my additions
+
+def test_batch_prediction_single(
+    model,
+    tok,
+    prefixes: typing.List[str],
+    target: str,
+    pad: bool = True
+):
+    """ """
+
+    prefix_lens = [len(n) for n in tok(prefixes)["input_ids"]]
+    
+
+    if pad:
+        prompt_tok = tok(
+        [
+            f"{prefix} {suffix}"
+            for prefix in prefixes
+            for suffix in [target]
+        ],
+        padding=True,
+        return_tensors="pt",
+    ).to("cuda")
+        cur_tok = tok(f" {target}")["input_ids"]
+        
+    else:
+        prompt_tok = tok(
+        [
+            f"{prefix}{suffix}"
+            for prefix in prefixes
+            for suffix in [target]
+        ],
+        padding=True,
+        return_tensors="pt",
+    ).to("cuda")
+        cur_tok = tok(f"{target}")["input_ids"]
+        
+    cur_len = len(cur_tok)
+    
+    with torch.no_grad():
+        logits = model(**prompt_tok).logits
+
+    results = np.zeros((logits.size(0),), dtype=np.float32)
+
+    for i in range(logits.size(0)):
+
+        for j in range(cur_len):
+
+            results[i] += -torch.nn.functional.log_softmax(
+                logits[i, prefix_lens[i // 2] + j - 1, :], dim=0
+            )[cur_tok].item()
+        results[i] /= cur_len
+
+    return [
+        {"target": results[0].item()}
+    ]
