@@ -18,6 +18,8 @@ from dsets import AttributeSnippets
 from util.generate import generate_fast
 from util.perplexity import perplexity
 
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import cos_sim
 
 def compute_rewrite_quality_counterfact(
     model: AutoModelForCausalLM,
@@ -100,10 +102,19 @@ def compute_rewrite_quality_counterfact(
         ret.update(gen_stats)
         
     ## Do my evaluation, creating a dictionary
-    probs = test_batch_prediction_single(
-        model, tok, [f"{subject} is"], target_true["str"], pad = True
-    )
-    my_stats = {"essence_prompt_prob": probs[0]}
+    
+    #     probs = test_batch_prediction_single(
+#         model, tok, [f"{subject} is"], target_true["str"], pad = True
+#     )
+#     my_stats = {"essence_prompt_prob": probs[0]}
+
+
+    MODEL_NAME = model.name_or_path
+    prompts = [record["subj_const_prompts"][MODEL_NAME][i]["prompt"] for i in range(0,3)]
+    orig_gens = [record["subj_const_prompts"][MODEL_NAME][i]["gens"] for i in range(0,3)]
+
+    my_stats = {"subj_gen_sim": calc_subj_gen_similarity(model, tok, prompts, orig_gens)}
+
     
     ret.update(my_stats)
 
@@ -284,3 +295,53 @@ def test_batch_prediction_single(
     return [
         {"target": results[0].item()}
     ]
+
+def sentence_similarity_matrix(sentences1, sentences2):
+
+    smodel = SentenceTransformer('all-MiniLM-L6-v2')
+
+    #Compute embedding for both lists
+    embeddings1 = smodel.encode(sentences1, convert_to_tensor=True)
+    embeddings2 = smodel.encode(sentences2, convert_to_tensor=True)
+
+    #Compute cosine-similarities
+    cosine_scores = cos_sim(embeddings1, embeddings2)
+    return(cosine_scores)
+
+
+def avg_sentence_similarity(sentences1, sentences2):
+    return(torch.mean(sentence_similarity_matrix(sentences1, sentences2)))
+
+
+def generate_sc_text(texts, model, tok, max_new_tokens=15, num_return_sequences = 5):
+    if type(texts) != list:
+        texts = [texts]
+    tok.padding_side = "left"
+    tok.pad_token = tok.eos_token
+    encoding = tok(texts, padding=True, return_tensors='pt').to("cuda")
+    with torch.no_grad():
+        generated_ids = model.generate(**encoding, 
+                                       do_sample=True, 
+                                       temperature=0.7, 
+                                       max_new_tokens = max_new_tokens,
+                                       num_return_sequences = num_return_sequences,
+                                       pad_token_id=tok.eos_token_id
+                                      )
+
+        generated_texts = tok.batch_decode(
+            generated_ids, skip_special_tokens=True
+        )
+        
+    return(generated_texts)
+
+
+def calc_subj_gen_similarity(model, tok, gen_prompts, orig_prompts):
+    sims = []
+    for i in range(len(gen_prompts)):
+        gens = generate_sc_text(gen_prompts[i], model, tok)
+        sentence_similarity = avg_sentence_similarity(gens, orig_prompts[i])
+        sims.append(sentence_similarity.item())
+
+    mean_sim = sum(sims)/len(sims)
+    
+    return(mean_sim)

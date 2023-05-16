@@ -39,7 +39,7 @@ class CounterFactDataset(Dataset):
         self, data_dir: str, size: typing.Optional[int] = None, *args, **kwargs
     ):
         data_dir = Path(data_dir)
-        cf_loc = data_dir / "counterfact-selected.json"
+        cf_loc = data_dir / "counterfact-selected-train250.json"
         
         # if not cf_loc.exists():
         #     print(f"{cf_loc} does not exist. Downloading from {REMOTE_URL}")

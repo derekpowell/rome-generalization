@@ -100,9 +100,19 @@ def main(
                     cur_sum[sum_key].append(np.mean(data[prefix][key]))
 
                 # Generation metrics that can be directly averaged
-                for key in ["ngram_entropy", "reference_score", "essence_score"]:
+                for key in ["ngram_entropy", "reference_score"]:
                     if prefix in data and key in data[prefix]:
                         cur_sum[f"{prefix}_{key}"].append(data[prefix][key])
+            
+            ### ------- beginmy stufff
+            
+            ## for my tests comparing single values at pre and post
+            subj_gen_diff = data["post"]["subj_gen_sim"] - data["pre"]["subj_gen_sim"]
+            print(subj_gen_diff)
+            cur_sum["subj_gen_diff"].append(subj_gen_diff)
+            
+            ### -------- end my stuff
+            
 
         if len(cur_sum) == 0:
             continue
@@ -143,7 +153,7 @@ def main(
                     break
 
         for k, v in cur_sum.items():
-            if all(exclude not in k for exclude in ["essence_score", "time"]):
+            if all(exclude not in k for exclude in ["subj_gen_diff", "time"]):
                 # Constant multiplication scales linearly with mean and stddev
                 cur_sum[k] = tuple(np.around(z * 100, 2) for z in v)
 
