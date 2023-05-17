@@ -43,7 +43,7 @@ def main(
 
             for prefix in ["pre", "post"]:
                 # Probability metrics for which new should be lower (better) than true
-                for key in ["rewrite_prompts_probs", "paraphrase_prompts_probs"]:
+                for key in ["rewrite_prompts_probs", "paraphrase_prompts_probs"]: # added low_target_prompts_probs
                     if prefix not in data or key not in data[prefix]:
                         continue
 
@@ -107,8 +107,36 @@ def main(
             ### ------- beginmy stufff
             
             ## for my tests comparing single values at pre and post
+            ## generated sentence similarity
             subj_gen_diff = data["post"]["subj_gen_sim"] - data["pre"]["subj_gen_sim"]
+            subj_gen_post = data["post"]["subj_gen_sim"]
             cur_sum["subj_gen_diff"].append(subj_gen_diff)
+            cur_sum["subj_gen_post"].append(subj_gen_post)
+            
+            ## bertscore recall for new and old targets
+            subj_bertscore_diff = data["post"]["bertscore_new"] - data["pre"]["bertscore_true"]
+            subj_bertscore_post = data["post"]["bertscore_new"]
+            cur_sum["subj_bertscore_diff"].append(subj_bertscore_diff)
+            cur_sum["subj_bertscore_post"].append(subj_bertscore_post)
+            
+            
+            ## probability of new vs old target token in low probability location
+            low_prob_diff = np.mean(
+                [
+                    np.exp(-data["post"]["low_target_prompts_probs"][i]["target_new"]) - np.exp(-data["pre"]["low_target_prompts_probs"][i]["target_true"])
+                    for i in range(len(data["post"]["low_target_prompts_probs"]))
+                ]
+            )
+            cur_sum["low_target_prob_diff"].append(low_prob_diff)
+            
+            target_notappear_diff = np.mean(
+                [
+                    np.exp(data["post"]["logprob_no_target_new"][i]) - np.exp(data["pre"]["logprob_no_target_true"][i])
+                    for i in range(len(data["post"]["logprob_no_target_true"]))
+                ]
+            )
+            
+            cur_sum["target_notappear_diff"].append(target_notappear_diff)
             
             ### -------- end my stuff
             
@@ -152,7 +180,7 @@ def main(
                     break
 
         for k, v in cur_sum.items():
-            if all(exclude not in k for exclude in ["subj_gen_diff", "essence_score", "time"]):
+            if all(exclude not in k for exclude in ["subj_gen_diff", "subj_gen_post", "subj_bertscore_diff", "subj_bertscore_post", "essence_score", "time"]):
                 # Constant multiplication scales linearly with mean and stddev
                 cur_sum[k] = tuple(np.around(z * 100, 2) for z in v)
 

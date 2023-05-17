@@ -21,6 +21,8 @@ from util.perplexity import perplexity
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.util import cos_sim
 
+import torch.nn.functional as F
+
 def compute_rewrite_quality_counterfact(
     model: AutoModelForCausalLM,
     tok: AutoTokenizer,
@@ -41,6 +43,7 @@ def compute_rewrite_quality_counterfact(
 
     :return: Dictionary containing rewriting metrics
     """
+    MODEL_NAME = model.name_or_path
 
     # First, unpack rewrite evaluation record.
     subject, target_new, target_true = (
@@ -51,6 +54,9 @@ def compute_rewrite_quality_counterfact(
     neighborhood_prompts = record["neighborhood_prompts"]
     attribute_prompts = record["attribute_prompts"]
     generation_prompts = record["generation_prompts"]
+    
+    ## my addition
+    low_target_prompts = record["low_target_prompts"][MODEL_NAME] 
 
     # Form a list of lists of prefixes to test.
     prob_prompts = [
@@ -58,6 +64,7 @@ def compute_rewrite_quality_counterfact(
         paraphrase_prompts,
         neighborhood_prompts,
         attribute_prompts,
+        low_target_prompts # addition
     ]
     # Flatten all the evaluated prefixes into one list.
     probs = test_batch_prediction(
@@ -75,6 +82,7 @@ def compute_rewrite_quality_counterfact(
                 "paraphrase_prompts",
                 "neighborhood_prompts",
                 "attribute_prompts",
+                "low_target_prompts" # addition
             ]
         )
     }
@@ -103,17 +111,51 @@ def compute_rewrite_quality_counterfact(
         
     ## Do my evaluation, creating a dictionary
     
-    #     probs = test_batch_prediction_single(
-#         model, tok, [f"{subject} is"], target_true["str"], pad = True
-#     )
-#     my_stats = {"essence_prompt_prob": probs[0]}
+    prompts = [record["subj_const_prompts"][MODEL_NAME][i]["prompt"] for i in range(0,5)]
+    orig_gens = [x["gens"][0] for x in record["subj_const_prompts"][MODEL_NAME]]
+    
+    logprobs_gens = []
+    new_target_noappear_logprobs = []
+    true_target_noappear_logprobs = []
+    bertscore_new = []
+    bertscore_true = []
+    all_gens = []
+    for p in prompts:
+        
+        probs_noappear_true = logprob_target_not_appear(orig_gens, target_true["str"], p, model, tok)
+        max_idx = torch.max(probs_noappear_true,0).indices.item()
+        least_likely = orig_gens[max_idx]
+        logprobs_gens.append(least_likely)
+        
+        probs_noappear_true = probs_noappear_true[max_idx]
+        probs_noappear_new = logprob_target_not_appear(least_likely, target_new["str"], p, model, tok)
+        true_target_noappear_logprobs.append(probs_noappear_true.item())
+        new_target_noappear_logprobs.append(probs_noappear_new.item())
+        
+        ## ---- new
+#         gens = generate_fast(model, tok, p, n_gen_per_prompt = 5, max_out_len = 25) # not great to have this hardcoded
+#         bs_new = calc_bertscore_recall2(gens, target_new["str"])
+#         bs_true = calc_bertscore_recall2(gens, target_true["str"])
+        
+#         bertscore_new.extend(bs_new)
+#         bertscore_true.extend(bs_true)
+        
+#         all_gens.extend(gens)
+        
+        
+    
+    bertscore_new = calc_bertscore_recall(model, tok, prompts, target_new["str"])
+    bertscore_true = calc_bertscore_recall(model, tok, prompts, target_true["str"])
 
-
-    MODEL_NAME = model.name_or_path
-    prompts = [record["subj_const_prompts"][MODEL_NAME][i]["prompt"] for i in range(0,3)]
-    orig_gens = [record["subj_const_prompts"][MODEL_NAME][i]["gens"] for i in range(0,3)]
-
-    my_stats = {"subj_gen_sim": calc_subj_gen_similarity(model, tok, prompts, orig_gens)}
+    my_stats = {
+        "subj_gen_sim": calc_subj_gen_similarity(model, tok, prompts, orig_gens),
+        "logprob_no_target_true": true_target_noappear_logprobs,
+        "logprob_no_target_new": new_target_noappear_logprobs,
+        "low_prob_gen_text": logprobs_gens,
+        "bertscore_new": bertscore_new,
+        "bertscore_true": bertscore_true,
+        # "model_gen_text": all_gens 
+    }
 
     
     ret.update(my_stats)
@@ -338,8 +380,8 @@ def avg_sentence_similarity(sentences1, sentences2):
 def calc_subj_gen_similarity(model, tok, gen_prompts, orig_gens):
     sims = []
     for i in range(len(gen_prompts)):
-        gens = generate_fast(model, tok, [gen_prompts[i]], n_gen_per_prompt = 5, max_out_len = 25)
-        gens = [g[len(gen_prompts[i]):] for g in gens] # just use the generated part, not the original prompt
+        gens = generate_fast(model, tok, [gen_prompts[i]], n_gen_per_prompt = 5, max_out_len = 25) # not great to have this hardcoded
+        # gens = [g[len(gen_prompts[i]):] for g in gens] # just use the generated part, not the original prompt
         sentence_similarity = avg_sentence_similarity(gens, orig_gens[i])
         sims.append(sentence_similarity.item())
 
@@ -359,3 +401,91 @@ def calc_subj_gen_similarity(model, tok, gen_prompts, orig_gens):
 #     mean_sim = sum(sims)/len(sims)
     
 #     return(mean_sim)
+
+# write a new function to compute max probability of token in certain generations
+def encode_token(token:str, tokenizer):
+    
+    if token[0] != " ": # pad token
+        token = " " + token
+        
+    token_id = tokenizer(token)["input_ids"]
+    return(token_id)
+    
+def token_logits(texts, token, tokenizer, model, start_ind = 0):
+    encoding = tokenizer(texts, padding=True, return_tensors='pt').to("cuda")
+    with torch.no_grad():
+        model_out = model(encoding["input_ids"])
+        logits = model_out.logits
+        logprobs = F.log_softmax(logits, -1)
+
+    token_id = encode_token(token, tokenizer)
+    
+    return(logprobs[:, start_ind:, token_id])
+
+
+# def token_max_prob(texts, token, tokenizer, start_ind = 0):
+#     token_id = encode_token(token, tokenizer)
+#     logits = token_logits(texts, token, tokenizer)
+#     # logits = logits[:, start_ind:, token_id]
+#     out = torch.max(logits, 1)
+    
+#     return(out)
+
+def count_tokens(text, tokenizer):
+    if type(text)==list:
+        assert len(text)==1, "count_tokens() only meant to count tokens of one string at a time"
+        
+    encoding = tokenizer(text, return_tensors='pt')
+    return(len(encoding["input_ids"][0]))
+
+
+def log1mexp(x):
+    """Numerically accurate evaluation of log(1 - exp(x)) for x < 0.
+    See [Maechler2012accurate]_ for details.
+    """
+    mask = x < 0
+    return torch.where(
+        mask,
+        (-x.expm1()).log(),
+        (-x.exp()).log1p(),
+    )
+
+def logprob_target_not_appear(texts, target, prompt, model, tokenizer):
+    ## what about the probability of it not occuring in the whole string?
+    l = token_logits(texts, target, tokenizer, model, count_tokens(prompt, tokenizer))
+    return(torch.sum(log1mexp(l), 1))
+    
+
+def calc_notarget_prob(model, tok, gen_prompts, target):
+    for i in range(len(gen_prompts)):
+        gens = generate_fast(model, tok, [gen_prompts[i]], n_gen_per_prompt = 5, max_out_len = 25)
+        l = logprob_target_not_appear(gens, target, gen_prompts[i], model, tok)                 
+    return(l)
+
+
+
+from evaluate import load
+bertscore = load("bertscore")
+
+def calc_bertscore_recall(model, tok, gen_prompts, ref):
+    sims = []
+    for i in range(len(gen_prompts)):
+        gens = generate_fast(model, tok, [gen_prompts[i]], n_gen_per_prompt = 5, max_out_len = 25) # not great to have this hardcoded
+
+        references = [ref]*len(gens)
+        results = bertscore.compute(predictions=gens, references=references, model_type="distilbert-base-uncased") # "distilbert-base-uncased"
+
+        sims.extend(results["recall"])
+
+    mean_sim = sum(sims)/len(sims) # compute average recall for all prompts
+    
+    return(mean_sim)
+
+# calc_bertscore_recall(model, tokenizer, [prompt]*2, "baseball")
+
+def calc_bertscore_recall2(gens, ref):
+    
+    references = [ref]*len(gens)
+    results = bertscore.compute(predictions=gens, references=references, model_type="distilbert-base-uncased") # "distilbert-base-uncased"
+    
+    return(results["recall"])
