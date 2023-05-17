@@ -24,22 +24,25 @@ print(len(json_out), "items in selected relations")
 
 random.seed(2346)
 
-json_sampled = random.sample([j for j in json_out if j["case_id"] not in qual_items.case_id], k = 750)
+json_sampled = random.sample([j for j in json_out if j["case_id"] not in qual_items.case_id.values], k = 750)
 print("500 sampled validation items")
 print("250 sampled experimentation items")
 
 
 json_qual = []
 for j in json_data:
-    if j["case_id"] in qual_items.case_id: json_qual.append(j)
+    if j["case_id"] in qual_items.case_id.values and j["requested_rewrite"]["relation_id"] in rel_ids: json_qual.append(j)
     
+random.shuffle(json_qual)
+
 print(len(json_qual), "qualitative test set items")
+
 
 with open("data/counterfact-selected.json", "w") as file:
     json.dump(json_out, file, indent=4)
 
-with open("data/counterfact-selected-train250.json", "w") as file:
-    json.dump(json_sampled[500:], file, indent=4)
+# with open("data/counterfact-selected-train250.json", "w") as file:
+#     json.dump(json_sampled[500:], file, indent=4)
     
 with open("data/counterfact-selected-valid500.json", "w") as file:
     json.dump(json_sampled[:500], file, indent=4)

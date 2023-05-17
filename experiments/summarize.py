@@ -108,7 +108,6 @@ def main(
             
             ## for my tests comparing single values at pre and post
             subj_gen_diff = data["post"]["subj_gen_sim"] - data["pre"]["subj_gen_sim"]
-            print(subj_gen_diff)
             cur_sum["subj_gen_diff"].append(subj_gen_diff)
             
             ### -------- end my stuff
@@ -153,7 +152,7 @@ def main(
                     break
 
         for k, v in cur_sum.items():
-            if all(exclude not in k for exclude in ["subj_gen_diff", "time"]):
+            if all(exclude not in k for exclude in ["subj_gen_diff", "essence_score", "time"]):
                 # Constant multiplication scales linearly with mean and stddev
                 cur_sum[k] = tuple(np.around(z * 100, 2) for z in v)
 

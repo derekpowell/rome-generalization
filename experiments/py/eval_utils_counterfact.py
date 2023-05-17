@@ -313,35 +313,49 @@ def avg_sentence_similarity(sentences1, sentences2):
     return(torch.mean(sentence_similarity_matrix(sentences1, sentences2)))
 
 
-def generate_sc_text(texts, model, tok, max_new_tokens=15, num_return_sequences = 5):
-    if type(texts) != list:
-        texts = [texts]
-    tok.padding_side = "left"
-    tok.pad_token = tok.eos_token
-    encoding = tok(texts, padding=True, return_tensors='pt').to("cuda")
-    with torch.no_grad():
-        generated_ids = model.generate(**encoding, 
-                                       do_sample=True, 
-                                       temperature=0.7, 
-                                       max_new_tokens = max_new_tokens,
-                                       num_return_sequences = num_return_sequences,
-                                       pad_token_id=tok.eos_token_id
-                                      )
+# def generate_sc_text(texts, model, tok, max_new_tokens=15, num_return_sequences = 5):
+#     if type(texts) != list:
+#         texts = [texts]
+#     tok.padding_side = "left"
+#     tok.pad_token = tok.eos_token
+#     encoding = tok(texts, padding=True, return_tensors='pt').to("cuda")
+#     with torch.no_grad():
+#         generated_ids = model.generate(**encoding, 
+#                                        do_sample=True, 
+#                                        temperature=0.7, 
+#                                        max_new_tokens = max_new_tokens,
+#                                        num_return_sequences = num_return_sequences,
+#                                        pad_token_id=tok.eos_token_id
+#                                       )
 
-        generated_texts = tok.batch_decode(
-            generated_ids, skip_special_tokens=True
-        )
+#         generated_texts = tok.batch_decode(
+#             generated_ids, skip_special_tokens=True
+#         )
         
-    return(generated_texts)
+#     return(generated_texts)
 
 
-def calc_subj_gen_similarity(model, tok, gen_prompts, orig_prompts):
+def calc_subj_gen_similarity(model, tok, gen_prompts, orig_gens):
     sims = []
     for i in range(len(gen_prompts)):
-        gens = generate_sc_text(gen_prompts[i], model, tok)
-        sentence_similarity = avg_sentence_similarity(gens, orig_prompts[i])
+        gens = generate_fast(model, tok, [gen_prompts[i]], n_gen_per_prompt = 5, max_out_len = 25)
+        gens = [g[len(gen_prompts[i]):] for g in gens] # just use the generated part, not the original prompt
+        sentence_similarity = avg_sentence_similarity(gens, orig_gens[i])
         sims.append(sentence_similarity.item())
 
     mean_sim = sum(sims)/len(sims)
     
     return(mean_sim)
+
+
+# def calc_subj_gen_similarity_to_target(model, tok, gen_prompts, target):
+#     sims = []
+#     for i in range(len(gen_prompts)):
+#         gens = generate_fast(model, tok, [gen_prompts[i]], n_gen_per_prompt = 5, max_out_len = 25)
+#         gens = [g[len(gen_prompts[i]):] for g in gens] # just use the generated part, not the original prompt
+#         sentence_similarity = avg_sentence_similarity(gens, orig_gens[i])
+#         sims.append(sentence_similarity.item())
+
+#     mean_sim = sum(sims)/len(sims)
+    
+#     return(mean_sim)
