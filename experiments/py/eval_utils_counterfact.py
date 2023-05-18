@@ -112,6 +112,7 @@ def compute_rewrite_quality_counterfact(
     ## Do my evaluation, creating a dictionary
     
     prompts = [record["subj_const_prompts"][MODEL_NAME][i]["prompt"] for i in range(0,5)]
+    # prompts = [x["prompt"][0] for x in record["subj_const_prompts"][MODEL_NAME]]
     orig_gens = [x["gens"][0] for x in record["subj_const_prompts"][MODEL_NAME]]
     
     logprobs_gens = []
@@ -120,20 +121,38 @@ def compute_rewrite_quality_counterfact(
     bertscore_new = []
     bertscore_true = []
     all_gens = []
+    
+    new_target_noappear_logprobs_newgens = []
     for p in prompts:
         
-        probs_noappear_true = logprob_target_not_appear(orig_gens, target_true["str"], p, model, tok)
-        max_idx = torch.max(probs_noappear_true,0).indices.item()
-        least_likely = orig_gens[max_idx]
-        logprobs_gens.append(least_likely)
+        # print("prompt:", p)
         
-        probs_noappear_true = probs_noappear_true[max_idx]
-        probs_noappear_new = logprob_target_not_appear(least_likely, target_new["str"], p, model, tok)
-        true_target_noappear_logprobs.append(probs_noappear_true.item())
-        new_target_noappear_logprobs.append(probs_noappear_new.item())
+        probs_noappear_true = logprob_target_not_appear(orig_gens, target_true["str"], p, model, tok)
+        # max_idx = torch.max(probs_noappear_true,0).indices.item()
+        # least_likely = orig_gens[max_idx]
+        # logprobs_gens.append(least_likely)
+        # probs_noappear_true = probs_noappear_true[max_idx]
+        
+        
+        probs_noappear_new = logprob_target_not_appear(orig_gens, target_new["str"], p, model, tok)
+        true_target_noappear_logprobs.extend(probs_noappear_true.tolist())
+        new_target_noappear_logprobs.extend(probs_noappear_new.tolist())
+        
+        
         
         ## ---- new
-#         gens = generate_fast(model, tok, p, n_gen_per_prompt = 5, max_out_len = 25) # not great to have this hardcoded
+        new_gens = generate_fast(model, tok, [p], n_gen_per_prompt = 5, max_out_len = 25) # not great to have this hardcoded
+        # print(new_gens)
+        
+        probs_noappear_new_newgens = logprob_target_not_appear(new_gens, target_new["str"], p, model, tok)
+        # print(probs_noappear_new_newgens)
+
+        
+        ## use the mean -- expected probability of not including new target token in new generations
+        # probs_noappear_new_newgens = torch.mean(np.exp(probs_noappear_new_newgens))
+        new_target_noappear_logprobs_newgens.extend(probs_noappear_new_newgens.tolist())
+        
+        # max_idx = torch.max(probs_noappear_true,0).indices.item()
 #         bs_new = calc_bertscore_recall2(gens, target_new["str"])
 #         bs_true = calc_bertscore_recall2(gens, target_true["str"])
         
@@ -151,6 +170,7 @@ def compute_rewrite_quality_counterfact(
         "subj_gen_sim": calc_subj_gen_similarity(model, tok, prompts, orig_gens),
         "logprob_no_target_true": true_target_noappear_logprobs,
         "logprob_no_target_new": new_target_noappear_logprobs,
+        "logprob_no_target_newgens": new_target_noappear_logprobs_newgens,
         "low_prob_gen_text": logprobs_gens,
         "bertscore_new": bertscore_new,
         "bertscore_true": bertscore_true,

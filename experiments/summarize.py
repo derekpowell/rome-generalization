@@ -138,6 +138,15 @@ def main(
             
             cur_sum["target_notappear_diff"].append(target_notappear_diff)
             
+            target_notappear_newgens = np.mean(
+                [
+                    np.exp(data["post"]["logprob_no_target_newgens"][i])
+                    for i in range(len(data["post"]["logprob_no_target_newgens"]))
+                ]
+            )
+            
+            cur_sum["target_notappear_newgens"].append(target_notappear_newgens)
+            
             ### -------- end my stuff
             
 
